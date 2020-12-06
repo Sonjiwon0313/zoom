@@ -3,9 +3,20 @@ package com.zoomw.zoom.features.camera;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.hardware.Camera;
+import android.os.Environment;
 import android.util.Log;
+import android.util.LogPrinter;
 
-public class CameraManager {
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+import static android.provider.MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE;
+
+public class CameraManager<mediaFile> {
     private static CameraManager cameraManager; //디자인 패턴-싱글톤 (single ton)패턴 :전체 중에서 반드시 하나만 유지할 수 있도록 하는 것
     private static int maxCamera;
     private static int currentCamera = 0;
@@ -14,8 +25,8 @@ public class CameraManager {
     }
 
     public static CameraManager getCameraManager() {
-        if (cameraManager == null) { //없었을 땐 null이었을 것이고
-            cameraManager = new CameraManager(); //그 다음엔 카메라 매니저를 이용할 것
+        if (cameraManager == null) {
+            cameraManager = new CameraManager();
         }
         maxCamera = Camera.getNumberOfCameras();  //내 핸드폰에 카메라가 몇개 있는지 반환
         return cameraManager; //리턴해줌
@@ -54,6 +65,7 @@ public class CameraManager {
         Camera camera = null;
         try {
             //TODO: 카메라 선택하는 로직
+            currentCamera = (currentCamera) % maxCamera;
             camera = Camera.open(currentCamera);
             Camera.Parameters cameraParameters = camera.getParameters();
             if (cameraParameters.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
@@ -61,9 +73,64 @@ public class CameraManager {
                 camera.setParameters(cameraParameters);
             }
         } catch (Exception ex) {
-            Log.e("CameraManager", ex.toString());
+            Log.e("CameraMAnager", ex.toString());
             System.exit(1);
         }
         return camera;
     }
+
+    private Camera.PictureCallback getTakePictureCallback() {
+        return new Camera.PictureCallback() {
+            @Override
+            public void onPictureTaken(byte[] data, Camera camera) {
+                camera.startPreview();
+                File pictureFile = getOutputMediaFile(MEDIA_TYPE_IMAGE);
+                if (pictureFile == null) {
+                    Log.e("CameraManager", "파일 생성 실패");
+                    return;
+                }
+
+                try {
+                    FileOutputStream fos = new FileOutputStream(pictureFile);
+                    fos.write(data);
+                    fos.close();
+                } catch (FileNotFoundException e) {
+                    Log.e("CameraManager", "파일 찾기 실패: " + e.getMessage());
+                } catch (IOException e) {
+                    Log.e("CameraManager", "파일 접근 실패: " + e.getMessage());
+                } catch (Exception e) {
+                    Log.e("CameraManager", "사진 저장 실패: " + e.getMessage());
+                }
+            }
+        };
+    }
+
+    private static File getOutputMediaFile(int type) {
+        File mediaStorageDir = new File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+                "Zoompictures"
+        );
+
+        if (!mediaStorageDir.exists()) {
+            if (!mediaStorageDir.mkdirs()) {
+                Log.e("CameraManager", "파일 디렉토리 생성 실패");
+                return null;
+            }
+        }
+
+        String timeStamp = new SimpleDateFormat("YYYYMMDDHHmmss").format(new Date());
+        File mediaFile;
+        if (type == MEDIA_TYPE_IMAGE) {
+            mediaFile = new File(mediaStorageDir.getPath() + File.separator + "IMG_" + timeStamp + ".jpg");
+        } else {
+            return null;
+        }
+
+        return mediaFile;
+    }
+
+    public void takeAndSaveImage(Camera camera) {
+        camera.takePicture(null, null, getTakePictureCallback());
+    }
 }
+
